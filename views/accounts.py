@@ -1,6 +1,6 @@
 """
 views/accounts.py
-Accounts view: list, add, edit, and delete financial accounts.
+Accounts view: list, add, edit, and delete financial accounts for the current user.
 """
 
 import ttkbootstrap as ttkb
@@ -13,11 +13,12 @@ from utils.helpers import format_currency
 
 
 class AccountsView(ttkb.Frame):
-    """Manage the user's financial accounts."""
+    """Manage the current user's financial accounts."""
 
-    def __init__(self, parent, controller):
+    def __init__(self, parent, controller, user_id: int):
         super().__init__(parent)
         self.controller = controller
+        self._user_id = user_id
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -52,7 +53,6 @@ class AccountsView(ttkb.Frame):
         self._tree.column("Balance", width=140, anchor="e")
         self._tree.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
 
-        # Scrollbar
         scrollbar = ttkb.Scrollbar(self, orient="vertical", command=self._tree.yview)
         scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 8))
         self._tree.configure(yscrollcommand=scrollbar.set)
@@ -60,17 +60,16 @@ class AccountsView(ttkb.Frame):
         # Action buttons
         btn_row = ttkb.Frame(self)
         btn_row.grid(row=2, column=0, sticky="e", padx=20, pady=(0, 16))
-        ttkb.Button(btn_row, text="Edit", bootstyle="warning-outline", command=self._open_edit_dialog).pack(side="left", padx=4)
-        ttkb.Button(btn_row, text="Delete", bootstyle="danger-outline", command=self._delete_selected).pack(side="left", padx=4)
+        ttkb.Button(btn_row, text="Edit",   bootstyle="warning-outline", command=self._open_edit_dialog).pack(side="left", padx=4)
+        ttkb.Button(btn_row, text="Delete", bootstyle="danger-outline",  command=self._delete_selected).pack(side="left", padx=4)
 
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------
 
     def refresh(self):
-        """Reload accounts from the database."""
         self._tree.delete(*self._tree.get_children())
-        for row in db.get_all_accounts():
+        for row in db.get_all_accounts(self._user_id):
             self._tree.insert("", "end", values=(
                 row["id"], row["name"], row["type"],
                 format_currency(row["balance"]),
@@ -89,7 +88,7 @@ class AccountsView(ttkb.Frame):
             Messagebox.show_warning("Please select an account to edit.", title="No Selection")
             return
         values = self._tree.item(selected, "values")
-        account = db.get_account_by_id(int(values[0]))
+        account = db.get_account_by_id(int(values[0]), self._user_id)
         if account:
             _AccountDialog(self, title="Edit Account", account=account, on_save=self._save_edit_account)
 
@@ -104,15 +103,15 @@ class AccountsView(ttkb.Frame):
             title="Confirm Delete",
         )
         if confirm == "Yes":
-            db.delete_account(int(values[0]))
+            db.delete_account(int(values[0]), self._user_id)
             self.refresh()
 
     def _save_new_account(self, name: str, account_type: str, balance: float):
-        db.insert_account(name, account_type, balance)
+        db.insert_account(self._user_id, name, account_type, balance)
         self.refresh()
 
     def _save_edit_account(self, account_id: int, name: str, account_type: str, balance: float):
-        db.update_account(account_id, name, account_type, balance)
+        db.update_account(account_id, self._user_id, name, account_type, balance)
         self.refresh()
 
 

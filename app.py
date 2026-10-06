@@ -1,13 +1,15 @@
 """
 app.py
 Root application window and navigation controller.
-Manages the sidebar and swaps view frames on navigation.
+Shows the login screen first; after auth it builds the main UI and
+stores the session user_id for all data queries.
 """
 
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
-from database.db import initialize_db
+from database.db import initialize_db, get_username
+from views.login import LoginView
 from views.dashboard import DashboardView
 from views.accounts import AccountsView
 from views.income import IncomeView
@@ -15,92 +17,175 @@ from views.expenses import ExpensesView
 
 
 class PhantomFinanceApp(ttkb.Window):
-    """Main application window with a sidebar navigation and content area."""
+    """Main application window with a login gate, sidebar navigation, and session management."""
 
     APP_TITLE = "Phantom Finance"
-    THEME = "darkly"  # ttkbootstrap theme
+    THEME = "darkly"
     GEOMETRY = "1100x680"
+    LOGIN_GEOMETRY = "460x400"
 
-    # Sidebar navigation items: (label, view_class)
     NAV_ITEMS = [
-        ("Dashboard",  DashboardView),
-        ("Accounts",   AccountsView),
-        ("Income",     IncomeView),
-        ("Expenses",   ExpensesView),
+        ("Dashboard", DashboardView),
+        ("Accounts",  AccountsView),
+        ("Income",    IncomeView),
+        ("Expenses",  ExpensesView),
     ]
 
     def __init__(self):
         super().__init__(themename=self.THEME)
         self.title(self.APP_TITLE)
-        self.geometry(self.GEOMETRY)
-        self.minsize(900, 580)
+        self.minsize(460, 380)
 
         initialize_db()
+
+        self._user_id: int | None = None
         self._frames: dict[str, ttkb.Frame] = {}
-        self._build_ui()
-        self.show_view("Dashboard")
+        self._sidebar: ttkb.Frame | None = None
+        self._username_label: ttkb.Label | None = None
+
+        self._show_login()
 
     # ------------------------------------------------------------------
-    # UI Construction
+    # Login screen
     # ------------------------------------------------------------------
 
-    def _build_ui(self):
-        """Build sidebar + main content area layout."""
+    def _show_login(self):
+        """Display the login/register screen, sized as a small centred dialog."""
+        self._clear_window()
+        self.geometry(self.LOGIN_GEOMETRY)
+        self._center_window(460, 400)
+
+        login_view = LoginView(self, on_success=self._on_login_success)
+        login_view.pack(fill="both", expand=True)
+
+    def _on_login_success(self, user_id: int):
+        """Called by LoginView after a successful login or registration."""
+        self._user_id = user_id
+        self._show_main_ui()
+
+    # ------------------------------------------------------------------
+    # Main UI
+    # ------------------------------------------------------------------
+
+    def _show_main_ui(self):
+        """Build and display the full app UI after successful login."""
+        self._clear_window()
+        self.geometry(self.GEOMETRY)
+        self._center_window(1100, 680)
+        self.minsize(900, 580)
+
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         self._build_sidebar()
         self._build_content_area()
+        self.show_view("Dashboard")
 
     def _build_sidebar(self):
-        """Create the left navigation sidebar."""
-        sidebar = ttkb.Frame(self, bootstyle="dark", width=200)
-        sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_propagate(False)
+        """Create the left navigation sidebar with user info and logout."""
+        self._sidebar = ttkb.Frame(self, bootstyle="dark", width=200)
+        self._sidebar.grid(row=0, column=0, sticky="nsew")
+        self._sidebar.grid_propagate(False)
 
-        # App title / logo area
-        title_label = ttkb.Label(
-            sidebar,
+        # App branding
+        ttkb.Label(
+            self._sidebar,
             text="💰 Phantom Finance",
             font=("Helvetica", 13, "bold"),
             bootstyle="inverse-dark",
-            padding=(16, 20),
-        )
-        title_label.pack(fill="x")
+            padding=(16, 16),
+        ).pack(fill="x")
 
-        ttkb.Separator(sidebar, bootstyle="secondary").pack(fill="x", pady=(0, 8))
+        ttkb.Separator(self._sidebar, bootstyle="secondary").pack(fill="x")
+
+        # Logged-in user label
+        username = get_username(self._user_id)
+        self._username_label = ttkb.Label(
+            self._sidebar,
+            text=f"👤 {username}",
+            font=("Helvetica", 9),
+            bootstyle="inverse-dark",
+            padding=(16, 8),
+        )
+        self._username_label.pack(fill="x")
+
+        ttkb.Separator(self._sidebar, bootstyle="secondary").pack(fill="x", pady=(0, 8))
 
         # Navigation buttons
-        for label, view_class in self.NAV_ITEMS:
-            btn = ttkb.Button(
-                sidebar,
+        for label, _ in self.NAV_ITEMS:
+            ttkb.Button(
+                self._sidebar,
                 text=label,
                 bootstyle="secondary-outline",
                 command=lambda lbl=label: self.show_view(lbl),
                 width=18,
                 padding=(8, 10),
-            )
-            btn.pack(fill="x", padx=12, pady=4)
+            ).pack(fill="x", padx=12, pady=4)
+
+        # Spacer
+        ttkb.Frame(self._sidebar, bootstyle="dark").pack(fill="both", expand=True)
+
+        # Logout button pinned to the bottom
+        ttkb.Separator(self._sidebar, bootstyle="secondary").pack(fill="x", pady=(0, 4))
+        ttkb.Button(
+            self._sidebar,
+            text="Log Out",
+            bootstyle="danger-outline",
+            command=self._logout,
+            width=18,
+            padding=(8, 10),
+        ).pack(fill="x", padx=12, pady=(0, 12))
 
     def _build_content_area(self):
-        """Create and register all view frames in the content area."""
+        """Create and stack all view frames; they receive user_id at construction."""
         container = ttkb.Frame(self)
         container.grid(row=0, column=1, sticky="nsew")
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
+        self._frames.clear()
         for label, view_class in self.NAV_ITEMS:
-            frame = view_class(container, self)
+            frame = view_class(container, self, self._user_id)
             frame.grid(row=0, column=0, sticky="nsew")
             self._frames[label] = frame
 
     # ------------------------------------------------------------------
-    # Navigation
+    # Navigation & session
     # ------------------------------------------------------------------
 
     def show_view(self, name: str):
-        """Bring the named view to the front."""
+        """Bring the named view to the front and refresh its data."""
         frame = self._frames.get(name)
         if frame:
             frame.refresh()
             frame.tkraise()
+
+    def _logout(self):
+        """Clear the session and return to the login screen."""
+        self._user_id = None
+        self._frames.clear()
+        self.minsize(460, 380)
+        self._show_login()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _clear_window(self):
+        """Destroy all child widgets to prepare for a layout swap."""
+        for widget in self.winfo_children():
+            widget.destroy()
+        # Reset grid config
+        for col in range(self.grid_size()[0]):
+            self.grid_columnconfigure(col, weight=0)
+        for row in range(self.grid_size()[1]):
+            self.grid_rowconfigure(row, weight=0)
+
+    def _center_window(self, width: int, height: int):
+        """Center the window on the screen."""
+        self.update_idletasks()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")

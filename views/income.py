@@ -1,6 +1,6 @@
 """
 views/income.py
-Income view: list, add, edit, and delete income transactions.
+Income view: list, add, edit, and delete income transactions for the current user.
 """
 
 import ttkbootstrap as ttkb
@@ -13,11 +13,12 @@ from utils.helpers import format_currency, format_date, today_str
 
 
 class IncomeView(ttkb.Frame):
-    """Manage income transactions."""
+    """Manage income transactions for the logged-in user."""
 
-    def __init__(self, parent, controller):
+    def __init__(self, parent, controller, user_id: int):
         super().__init__(parent)
         self.controller = controller
+        self._user_id = user_id
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -46,12 +47,12 @@ class IncomeView(ttkb.Frame):
         )
         for col in cols:
             self._tree.heading(col, text=col)
-        self._tree.column("ID", width=50, anchor="center")
-        self._tree.column("Date", width=110, anchor="center")
-        self._tree.column("Account", width=140)
-        self._tree.column("Category", width=140)
+        self._tree.column("ID",          width=50,  anchor="center")
+        self._tree.column("Date",        width=110, anchor="center")
+        self._tree.column("Account",     width=140)
+        self._tree.column("Category",    width=140)
         self._tree.column("Description", width=220)
-        self._tree.column("Amount", width=120, anchor="e")
+        self._tree.column("Amount",      width=120, anchor="e")
         self._tree.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
 
         scrollbar = ttkb.Scrollbar(self, orient="vertical", command=self._tree.yview)
@@ -61,8 +62,8 @@ class IncomeView(ttkb.Frame):
         # Action buttons
         btn_row = ttkb.Frame(self)
         btn_row.grid(row=2, column=0, sticky="e", padx=20, pady=(0, 16))
-        ttkb.Button(btn_row, text="Edit", bootstyle="warning-outline", command=self._open_edit_dialog).pack(side="left", padx=4)
-        ttkb.Button(btn_row, text="Delete", bootstyle="danger-outline", command=self._delete_selected).pack(side="left", padx=4)
+        ttkb.Button(btn_row, text="Edit",   bootstyle="warning-outline", command=self._open_edit_dialog).pack(side="left", padx=4)
+        ttkb.Button(btn_row, text="Delete", bootstyle="danger-outline",  command=self._delete_selected).pack(side="left", padx=4)
 
     # ------------------------------------------------------------------
     # Data loading
@@ -70,7 +71,7 @@ class IncomeView(ttkb.Frame):
 
     def refresh(self):
         self._tree.delete(*self._tree.get_children())
-        for row in db.get_transactions_by_type("income"):
+        for row in db.get_transactions_by_type(self._user_id, "income"):
             self._tree.insert("", "end", values=(
                 row["id"],
                 format_date(row["date"]),
@@ -85,7 +86,10 @@ class IncomeView(ttkb.Frame):
     # ------------------------------------------------------------------
 
     def _open_add_dialog(self):
-        _TransactionDialog(self, title="Add Income", transaction_type="income", on_save=self._save_new)
+        _TransactionDialog(
+            self, title="Add Income", transaction_type="income",
+            user_id=self._user_id, on_save=self._save_new,
+        )
 
     def _open_edit_dialog(self):
         selected = self._tree.focus()
@@ -93,11 +97,13 @@ class IncomeView(ttkb.Frame):
             Messagebox.show_warning("Please select a transaction to edit.", title="No Selection")
             return
         values = self._tree.item(selected, "values")
-        rows = db.get_transactions_by_type("income")
+        rows = db.get_transactions_by_type(self._user_id, "income")
         row = next((r for r in rows if r["id"] == int(values[0])), None)
         if row:
-            _TransactionDialog(self, title="Edit Income", transaction_type="income",
-                               transaction=row, on_save=self._save_edit)
+            _TransactionDialog(
+                self, title="Edit Income", transaction_type="income",
+                user_id=self._user_id, transaction=row, on_save=self._save_edit,
+            )
 
     def _delete_selected(self):
         selected = self._tree.focus()
@@ -123,18 +129,19 @@ class IncomeView(ttkb.Frame):
 
 
 # ---------------------------------------------------------------------------
-# Shared Transaction Add / Edit Dialog
+# Transaction Add / Edit Dialog
 # ---------------------------------------------------------------------------
 
 class _TransactionDialog(ttkb.Toplevel):
-    def __init__(self, parent, title: str, transaction_type: str, on_save, transaction=None):
+    def __init__(self, parent, title: str, transaction_type: str, user_id: int, on_save, transaction=None):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
         self._type = transaction_type
+        self._user_id = user_id
         self._on_save = on_save
         self._transaction = transaction
-        self._accounts = db.get_all_accounts()
+        self._accounts = db.get_all_accounts(user_id)
         self._build_form()
         if transaction:
             self._populate(transaction)
@@ -143,30 +150,24 @@ class _TransactionDialog(ttkb.Toplevel):
         form = ttkb.Frame(self, padding=20)
         form.pack(fill="both", expand=True)
 
-        # Account
         ttkb.Label(form, text="Account").grid(row=0, column=0, sticky="w", pady=4)
         self._account_var = ttkb.StringVar()
         account_names = [a["name"] for a in self._accounts]
-        self._account_combo = ttkb.Combobox(form, textvariable=self._account_var, values=account_names, width=26)
-        self._account_combo.grid(row=0, column=1, pady=4)
+        ttkb.Combobox(form, textvariable=self._account_var, values=account_names, width=26).grid(row=0, column=1, pady=4)
 
-        # Category
         ttkb.Label(form, text="Category").grid(row=1, column=0, sticky="w", pady=4)
         self._category_var = ttkb.StringVar()
-        categories = Transaction.income_categories() if self._type == "income" else Transaction.expense_categories()
+        categories = Transaction.income_categories()
         ttkb.Combobox(form, textvariable=self._category_var, values=categories, width=26).grid(row=1, column=1, pady=4)
 
-        # Amount
         ttkb.Label(form, text="Amount").grid(row=2, column=0, sticky="w", pady=4)
         self._amount_var = ttkb.StringVar()
         ttkb.Entry(form, textvariable=self._amount_var, width=28).grid(row=2, column=1, sticky="ew", pady=4)
 
-        # Description
         ttkb.Label(form, text="Description").grid(row=3, column=0, sticky="w", pady=4)
         self._desc_var = ttkb.StringVar()
         ttkb.Entry(form, textvariable=self._desc_var, width=28).grid(row=3, column=1, sticky="ew", pady=4)
 
-        # Date
         ttkb.Label(form, text="Date (YYYY-MM-DD)").grid(row=4, column=0, sticky="w", pady=4)
         self._date_var = ttkb.StringVar(value=today_str())
         ttkb.Entry(form, textvariable=self._date_var, width=28).grid(row=4, column=1, sticky="ew", pady=4)
