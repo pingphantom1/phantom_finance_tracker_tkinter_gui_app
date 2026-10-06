@@ -39,7 +39,7 @@ class LoginView(ttkb.Frame):
         # App branding
         ttkb.Label(
             card,
-            text="💰 Phantom Finance",
+            text="Phantom Finance",
             font=("Helvetica", 22, "bold"),
             bootstyle="inverse-dark",
         ).grid(row=0, column=0, columnspan=2, pady=(0, 4))

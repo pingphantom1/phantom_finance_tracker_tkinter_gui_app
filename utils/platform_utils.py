@@ -43,23 +43,6 @@ def ui_font(size: int = 10, weight: str = "normal") -> tuple[str, int, str]:
 
 
 # ---------------------------------------------------------------------------
-# Safe emoji
-# ---------------------------------------------------------------------------
-
-# On Windows the bundled Tk can struggle with emoji glyphs depending on the
-# Python/Tk build version. We substitute plain ASCII alternatives to be safe.
-_EMOJI_MAP: dict[str, str] = {
-    "💰": "$" if _OS == "Windows" else "💰",
-    "👤": "@" if _OS == "Windows" else "👤",
-}
-
-
-def safe_emoji(char: str) -> str:
-    """Return a platform-safe version of an emoji character."""
-    return _EMOJI_MAP.get(char, char)
-
-
-# ---------------------------------------------------------------------------
 # DPI / scaling hint
 # ---------------------------------------------------------------------------
 
