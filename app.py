@@ -21,8 +21,12 @@ class PhantomFinanceApp(ttkb.Window):
 
     APP_TITLE = "Phantom Finance"
     THEME = "darkly"
-    GEOMETRY = "1100x680"
-    LOGIN_GEOMETRY = "460x400"
+    # Main window: 3/4 of screen width; height scaled to a 16:9 ratio
+    MAIN_WIDTH_RATIO = 0.75
+    MAIN_ASPECT = 9 / 16
+    # Login window fixed size
+    LOGIN_WIDTH = 460
+    LOGIN_HEIGHT = 400
 
     NAV_ITEMS = [
         ("Dashboard", DashboardView),
@@ -52,8 +56,8 @@ class PhantomFinanceApp(ttkb.Window):
     def _show_login(self):
         """Display the login/register screen, sized as a small centred dialog."""
         self._clear_window()
-        self.geometry(self.LOGIN_GEOMETRY)
-        self._center_window(460, 400)
+        self._center_window(self.LOGIN_WIDTH, self.LOGIN_HEIGHT)
+        self.minsize(self.LOGIN_WIDTH, self.LOGIN_HEIGHT)
 
         login_view = LoginView(self, on_success=self._on_login_success)
         login_view.pack(fill="both", expand=True)
@@ -70,9 +74,18 @@ class PhantomFinanceApp(ttkb.Window):
     def _show_main_ui(self):
         """Build and display the full app UI after successful login."""
         self._clear_window()
-        self.geometry(self.GEOMETRY)
-        self._center_window(1100, 680)
-        self.minsize(900, 580)
+
+        # Compute window size: 3/4 screen width, height proportional (16:9)
+        self.update_idletasks()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width  = int(screen_w * self.MAIN_WIDTH_RATIO)
+        height = int(width * self.MAIN_ASPECT)
+        # Cap height so it always fits on screen with a small margin
+        height = min(height, int(screen_h * 0.88))
+        min_w, min_h = 900, 580
+        self._center_window(max(width, min_w), max(height, min_h))
+        self.minsize(min_w, min_h)
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -164,7 +177,7 @@ class PhantomFinanceApp(ttkb.Window):
         """Clear the session and return to the login screen."""
         self._user_id = None
         self._frames.clear()
-        self.minsize(460, 380)
+        self.minsize(self.LOGIN_WIDTH, self.LOGIN_HEIGHT)
         self._show_login()
 
     # ------------------------------------------------------------------
