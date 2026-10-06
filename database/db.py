@@ -21,7 +21,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def initialize_db() -> None:
-    """Create all tables if they do not already exist."""
+    """Create all tables if they do not already exist, and run any pending migrations."""
     with get_connection() as conn:
         cursor = conn.cursor()
 
@@ -62,6 +62,19 @@ def initialize_db() -> None:
         """)
 
         conn.commit()
+
+    _run_migrations()
+
+
+def _run_migrations() -> None:
+    """Apply incremental schema changes to existing databases."""
+    with get_connection() as conn:
+        # Migration 1: add user_id column to accounts if it doesn't exist yet
+        # (handles databases created before the auth feature was added)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "user_id" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER")
+            conn.commit()
 
 
 # ---------------------------------------------------------------------------
