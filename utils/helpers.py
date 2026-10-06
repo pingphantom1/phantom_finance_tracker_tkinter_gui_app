@@ -3,6 +3,8 @@ utils/helpers.py
 Shared utility functions used across the application.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, date
 
 

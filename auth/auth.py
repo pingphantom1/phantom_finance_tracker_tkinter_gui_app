@@ -4,6 +4,8 @@ Password hashing and verification using stdlib hashlib + secrets.
 Uses PBKDF2-HMAC-SHA256 with a per-user salt — no external dependencies.
 """
 
+from __future__ import annotations
+
 import hashlib
 import secrets
 

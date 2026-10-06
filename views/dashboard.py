@@ -3,15 +3,18 @@ views/dashboard.py
 Dashboard view: summary cards and transaction charts, scoped to the current user.
 """
 
-import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
+from __future__ import annotations
+
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import ttkbootstrap as ttkb
+from ttkbootstrap.constants import *
 
 from database import db
 from utils.helpers import format_currency
+from utils.platform_utils import ui_font, figure_dpi
 
 
 class DashboardView(ttkb.Frame):
@@ -34,7 +37,7 @@ class DashboardView(ttkb.Frame):
         # Page heading
         ttkb.Label(
             self, text="Dashboard",
-            font=("Helvetica", 18, "bold"),
+            font=ui_font(18, "bold"),
             padding=(20, 16),
         ).grid(row=0, column=0, sticky="w")
 
@@ -58,8 +61,8 @@ class DashboardView(ttkb.Frame):
 
     def _make_card(self, parent, title: str, value: str, style: str) -> ttkb.Frame:
         card = ttkb.Frame(parent, bootstyle=style, padding=16)
-        ttkb.Label(card, text=title, font=("Helvetica", 10), bootstyle=f"inverse-{style}").pack(anchor="w")
-        value_label = ttkb.Label(card, text=value, font=("Helvetica", 20, "bold"), bootstyle=f"inverse-{style}")
+        ttkb.Label(card, text=title, font=ui_font(10), bootstyle=f"inverse-{style}").pack(anchor="w")
+        value_label = ttkb.Label(card, text=value, font=ui_font(20, "bold"), bootstyle=f"inverse-{style}")
         value_label.pack(anchor="w", pady=(4, 0))
         card._value_label = value_label
         return card
@@ -72,7 +75,10 @@ class DashboardView(ttkb.Frame):
         for widget in self._chart_frame.winfo_children():
             widget.destroy()
 
-        fig = Figure(figsize=(9, 4), dpi=96, tight_layout=True)
+        dpi = figure_dpi()
+        fig = Figure(figsize=(9, 4), dpi=dpi)
+        # Use set_layout_engine instead of the deprecated tight_layout=True kwarg
+        fig.set_layout_engine("tight")
         fig.patch.set_facecolor("#222222")
 
         # Bar chart: income vs expenses

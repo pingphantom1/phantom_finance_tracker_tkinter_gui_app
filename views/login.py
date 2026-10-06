@@ -4,6 +4,8 @@ Login and registration screen shown before the main app window.
 Calls back into the app on successful auth.
 """
 
+from __future__ import annotations
+
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox

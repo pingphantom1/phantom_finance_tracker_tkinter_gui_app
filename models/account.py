@@ -3,6 +3,8 @@ models/account.py
 Data class representing a financial account.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
@@ -12,10 +14,6 @@ class Account:
     type: str          # 'bank', 'cash', 'credit', 'savings'
     balance: float = 0.0
     id: int | None = field(default=None)
-
-    ACCOUNT_TYPES: list[str] = field(default_factory=lambda: [
-        "Bank", "Cash", "Credit", "Savings", "Investment"
-    ], repr=False)
 
     def __post_init__(self):
         if not self.name.strip():

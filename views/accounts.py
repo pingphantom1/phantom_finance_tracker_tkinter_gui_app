@@ -3,6 +3,8 @@ views/accounts.py
 Accounts view: list, add, edit, and delete financial accounts for the current user.
 """
 
+from __future__ import annotations
+
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -10,6 +12,7 @@ from ttkbootstrap.dialogs import Messagebox
 from database import db
 from models.account import Account
 from utils.helpers import format_currency
+from utils.platform_utils import ui_font
 
 
 class AccountsView(ttkb.Frame):
@@ -32,7 +35,7 @@ class AccountsView(ttkb.Frame):
         # Header row
         header = ttkb.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
-        ttkb.Label(header, text="Accounts", font=("Helvetica", 18, "bold")).pack(side="left")
+        ttkb.Label(header, text="Accounts", font=ui_font(18, "bold")).pack(side="left")
         ttkb.Button(
             header, text="+ Add Account",
             bootstyle="success-outline",
@@ -47,9 +50,9 @@ class AccountsView(ttkb.Frame):
         )
         for col in cols:
             self._tree.heading(col, text=col)
-        self._tree.column("ID", width=50, anchor="center")
-        self._tree.column("Name", width=200)
-        self._tree.column("Type", width=120, anchor="center")
+        self._tree.column("ID",      width=50,  anchor="center")
+        self._tree.column("Name",    width=200)
+        self._tree.column("Type",    width=120, anchor="center")
         self._tree.column("Balance", width=140, anchor="e")
         self._tree.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
 

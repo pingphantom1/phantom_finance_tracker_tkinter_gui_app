@@ -3,8 +3,9 @@ models/transaction.py
 Data class representing a financial transaction.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from datetime import date as Date
 
 
 @dataclass
@@ -17,17 +18,6 @@ class Transaction:
     description: str = ""
     id: int | None = field(default=None)
     account_name: str = field(default="")
-
-    # Common income categories
-    INCOME_CATEGORIES: list[str] = field(default_factory=lambda: [
-        "Salary", "Freelance", "Business", "Investment", "Gift", "Other"
-    ], repr=False)
-
-    # Common expense categories
-    EXPENSE_CATEGORIES: list[str] = field(default_factory=lambda: [
-        "Food & Dining", "Transport", "Housing", "Utilities",
-        "Healthcare", "Entertainment", "Shopping", "Education", "Other"
-    ], repr=False)
 
     def __post_init__(self):
         if self.type not in ("income", "expense"):

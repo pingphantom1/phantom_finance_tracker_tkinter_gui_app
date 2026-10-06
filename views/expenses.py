@@ -3,6 +3,8 @@ views/expenses.py
 Expenses view: list, add, edit, and delete expense transactions for the current user.
 """
 
+from __future__ import annotations
+
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -10,6 +12,7 @@ from ttkbootstrap.dialogs import Messagebox
 from database import db
 from models.transaction import Transaction
 from utils.helpers import format_currency, format_date, today_str
+from utils.platform_utils import ui_font
 
 
 class ExpensesView(ttkb.Frame):
@@ -32,7 +35,7 @@ class ExpensesView(ttkb.Frame):
         # Header
         header = ttkb.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
-        ttkb.Label(header, text="Expenses", font=("Helvetica", 18, "bold")).pack(side="left")
+        ttkb.Label(header, text="Expenses", font=ui_font(18, "bold")).pack(side="left")
         ttkb.Button(
             header, text="+ Add Expense",
             bootstyle="danger-outline",

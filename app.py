@@ -5,6 +5,8 @@ Shows the login screen first; after auth it builds the main UI and
 stores the session user_id for all data queries.
 """
 
+from __future__ import annotations
+
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
@@ -14,6 +16,7 @@ from views.dashboard import DashboardView
 from views.accounts import AccountsView
 from views.income import IncomeView
 from views.expenses import ExpensesView
+from utils.platform_utils import ui_font, safe_emoji
 
 
 class PhantomFinanceApp(ttkb.Window):
@@ -103,8 +106,8 @@ class PhantomFinanceApp(ttkb.Window):
         # App branding
         ttkb.Label(
             self._sidebar,
-            text="💰 Phantom Finance",
-            font=("Helvetica", 13, "bold"),
+            text=f"{safe_emoji('💰')} Phantom Finance",
+            font=ui_font(13, "bold"),
             bootstyle="inverse-dark",
             padding=(16, 16),
         ).pack(fill="x")
@@ -115,8 +118,8 @@ class PhantomFinanceApp(ttkb.Window):
         username = get_username(self._user_id)
         self._username_label = ttkb.Label(
             self._sidebar,
-            text=f"👤 {username}",
-            font=("Helvetica", 9),
+            text=f"{safe_emoji('👤')} {username}",
+            font=ui_font(9),
             bootstyle="inverse-dark",
             padding=(16, 8),
         )

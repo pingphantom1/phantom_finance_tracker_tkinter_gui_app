@@ -4,6 +4,8 @@ Handles SQLite database initialization and all query operations.
 All account and transaction queries are scoped to a user_id for data isolation.
 """
 
+from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
 
