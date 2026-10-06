@@ -1,0 +1,130 @@
+"""
+views/dashboard.py
+Dashboard view: summary cards and transaction charts.
+"""
+
+import ttkbootstrap as ttkb
+from ttkbootstrap.constants import *
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+from database import db
+from utils.helpers import format_currency
+
+
+class DashboardView(ttkb.Frame):
+    """Displays summary stats and charts of all recorded transactions."""
+
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+        self._build_ui()
+
+    # ------------------------------------------------------------------
+    # UI Construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Page heading
+        heading = ttkb.Label(
+            self, text="Dashboard",
+            font=("Helvetica", 18, "bold"),
+            padding=(20, 16),
+        )
+        heading.grid(row=0, column=0, sticky="w")
+
+        # Summary cards
+        self._cards_frame = ttkb.Frame(self)
+        self._cards_frame.grid(row=1, column=0, sticky="ew", padx=20)
+
+        self._income_card = self._make_card(self._cards_frame, "Total Income", "$0.00", "success")
+        self._expense_card = self._make_card(self._cards_frame, "Total Expenses", "$0.00", "danger")
+        self._balance_card = self._make_card(self._cards_frame, "Net Balance", "$0.00", "info")
+
+        self._income_card.grid(row=0, column=0, padx=(0, 12), sticky="ew")
+        self._expense_card.grid(row=0, column=1, padx=(0, 12), sticky="ew")
+        self._balance_card.grid(row=0, column=2, sticky="ew")
+
+        self._cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
+
+        # Charts area
+        self._chart_frame = ttkb.Frame(self)
+        self._chart_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=16)
+        self.grid_rowconfigure(2, weight=1)
+
+    def _make_card(self, parent, title: str, value: str, style: str) -> ttkb.Frame:
+        """Create a summary card widget."""
+        card = ttkb.Frame(parent, bootstyle=style, padding=16)
+        ttkb.Label(card, text=title, font=("Helvetica", 10), bootstyle=f"inverse-{style}").pack(anchor="w")
+        value_label = ttkb.Label(card, text=value, font=("Helvetica", 20, "bold"), bootstyle=f"inverse-{style}")
+        value_label.pack(anchor="w", pady=(4, 0))
+        card._value_label = value_label  # keep a reference for updates
+        return card
+
+    # ------------------------------------------------------------------
+    # Chart rendering
+    # ------------------------------------------------------------------
+
+    def _render_charts(self, summary: dict, transactions: list):
+        """Clear and re-render the matplotlib charts."""
+        # Clear existing chart widgets
+        for widget in self._chart_frame.winfo_children():
+            widget.destroy()
+
+        fig = Figure(figsize=(9, 4), dpi=96, tight_layout=True)
+        fig.patch.set_facecolor("#222222")
+
+        # Left chart: income vs expenses bar
+        ax1 = fig.add_subplot(1, 2, 1)
+        ax1.set_facecolor("#2b2b2b")
+        ax1.bar(
+            ["Income", "Expenses"],
+            [summary["total_income"], summary["total_expenses"]],
+            color=["#28a745", "#dc3545"],
+        )
+        ax1.set_title("Income vs Expenses", color="white")
+        ax1.tick_params(colors="white")
+        for spine in ax1.spines.values():
+            spine.set_edgecolor("#555")
+
+        # Right chart: expense breakdown by category pie
+        ax2 = fig.add_subplot(1, 2, 2)
+        ax2.set_facecolor("#2b2b2b")
+        expense_rows = [t for t in transactions if t["type"] == "expense"]
+        if expense_rows:
+            from collections import Counter
+            category_totals = {}
+            for row in expense_rows:
+                category_totals[row["category"]] = category_totals.get(row["category"], 0) + row["amount"]
+            labels = list(category_totals.keys())
+            sizes = list(category_totals.values())
+            ax2.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"color": "white"})
+        else:
+            ax2.text(0.5, 0.5, "No expense data", ha="center", va="center", color="white")
+
+        ax2.set_title("Expenses by Category", color="white")
+
+        canvas = FigureCanvasTkAgg(fig, master=self._chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    # ------------------------------------------------------------------
+    # Refresh (called on navigation)
+    # ------------------------------------------------------------------
+
+    def refresh(self):
+        """Reload data from the database and update the view."""
+        summary = db.get_summary()
+        transactions = db.get_all_transactions()
+
+        self._income_card._value_label.config(text=format_currency(summary["total_income"]))
+        self._expense_card._value_label.config(text=format_currency(summary["total_expenses"]))
+        net = summary["net_balance"]
+        self._balance_card._value_label.config(text=format_currency(net))
+
+        self._render_charts(summary, transactions)
