@@ -167,6 +167,9 @@ class _AccountDialog(ttkb.Toplevel):
         if not name or not account_type:
             Messagebox.show_error("Name and type are required.", title="Invalid Input")
             return
+        if len(name) > 60:
+            Messagebox.show_error("Account name must be 60 characters or fewer.", title="Invalid Input")
+            return
         if self._account:
             self._on_save(self._account["id"], name, account_type, balance)
         else:

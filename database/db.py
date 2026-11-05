@@ -229,6 +229,7 @@ def insert_transaction(
 
 def update_transaction(
     transaction_id: int,
+    user_id: int,
     account_id: int,
     transaction_type: str,
     category: str,
@@ -236,18 +237,34 @@ def update_transaction(
     description: str,
     date: str,
 ) -> None:
+    """Update a transaction only if it belongs to user_id (ownership enforced via JOIN)."""
     with get_connection() as conn:
         conn.execute("""
             UPDATE transactions
             SET account_id = ?, type = ?, category = ?, amount = ?, description = ?, date = ?
             WHERE id = ?
-        """, (account_id, transaction_type, category, amount, description, date, transaction_id))
+              AND EXISTS (
+                  SELECT 1 FROM accounts
+                  WHERE accounts.id = transactions.account_id
+                    AND accounts.user_id = ?
+              )
+        """, (account_id, transaction_type, category, amount, description, date,
+              transaction_id, user_id))
         conn.commit()
 
 
-def delete_transaction(transaction_id: int) -> None:
+def delete_transaction(transaction_id: int, user_id: int) -> None:
+    """Delete a transaction only if it belongs to user_id (ownership enforced via JOIN)."""
     with get_connection() as conn:
-        conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+        conn.execute("""
+            DELETE FROM transactions
+            WHERE id = ?
+              AND EXISTS (
+                  SELECT 1 FROM accounts
+                  WHERE accounts.id = transactions.account_id
+                    AND accounts.user_id = ?
+              )
+        """, (transaction_id, user_id))
         conn.commit()
 
 

@@ -5,6 +5,7 @@ Expenses view: list, add, edit, and delete expense transactions for the current 
 
 from __future__ import annotations
 
+import re
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -13,6 +14,10 @@ from database import db
 from models.transaction import Transaction
 from utils.helpers import format_currency, format_date, today_str
 from utils.platform_utils import ui_font
+
+# Input length limits
+_MAX_DESCRIPTION_LEN = 200
+_DATE_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 
 
 class ExpensesView(ttkb.Frame):
@@ -120,7 +125,7 @@ class ExpensesView(ttkb.Frame):
             title="Confirm Delete",
         )
         if confirm == "Yes":
-            db.delete_transaction(int(values[0]))
+            db.delete_transaction(int(values[0]), self._user_id)
             self.refresh()
 
     def _save_new(self, account_id, category, amount, description, date):
@@ -128,7 +133,7 @@ class ExpensesView(ttkb.Frame):
         self.refresh()
 
     def _save_edit(self, transaction_id, account_id, category, amount, description, date):
-        db.update_transaction(transaction_id, account_id, "expense", category, amount, description, date)
+        db.update_transaction(transaction_id, self._user_id, account_id, "expense", category, amount, description, date)
         self.refresh()
 
 
@@ -214,6 +219,18 @@ class _TransactionDialog(ttkb.Toplevel):
             return
         if not category or not date:
             Messagebox.show_error("Category and date are required.", title="Invalid Input")
+            return
+        if not _DATE_RE.match(date):
+            Messagebox.show_error(
+                "Date must be in YYYY-MM-DD format (e.g. 2026-11-05).",
+                title="Invalid Date",
+            )
+            return
+        if len(description) > _MAX_DESCRIPTION_LEN:
+            Messagebox.show_error(
+                f"Description must be {_MAX_DESCRIPTION_LEN} characters or fewer.",
+                title="Invalid Input",
+            )
             return
         if self._transaction:
             self._on_save(self._transaction["id"], account["id"], category, amount, description, date)

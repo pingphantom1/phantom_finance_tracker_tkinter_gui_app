@@ -6,11 +6,16 @@ Calls back into the app on successful auth.
 
 from __future__ import annotations
 
+import re
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from database import db
+
+# Only allow letters, digits, underscores and hyphens — no spaces or SQL-special chars
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_MAX_USERNAME_LEN = 32
 
 
 class LoginView(ttkb.Frame):
@@ -149,6 +154,14 @@ class LoginView(ttkb.Frame):
             return
         if len(username) < 3:
             self._reg_error.config(text="Username must be at least 3 characters.")
+            return
+        if len(username) > _MAX_USERNAME_LEN:
+            self._reg_error.config(text=f"Username must be {_MAX_USERNAME_LEN} characters or fewer.")
+            return
+        if not _USERNAME_RE.match(username):
+            self._reg_error.config(
+                text="Username may only contain letters, digits, underscores and hyphens."
+            )
             return
         if len(password) < 8:
             self._reg_error.config(text="Password must be at least 8 characters.")
