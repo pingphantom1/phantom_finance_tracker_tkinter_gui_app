@@ -16,6 +16,7 @@ from views.dashboard import DashboardView
 from views.accounts import AccountsView
 from views.income import IncomeView
 from views.expenses import ExpensesView
+from views.transactions import TransactionsView
 from views.settings import SettingsView
 from utils.platform_utils import ui_font
 
@@ -33,11 +34,12 @@ class PhantomFinanceApp(ttkb.Window):
     LOGIN_HEIGHT = 400
 
     NAV_ITEMS = [
-        ("Dashboard", DashboardView),
-        ("Accounts",  AccountsView),
-        ("Income",    IncomeView),
-        ("Expenses",  ExpensesView),
-        ("Settings",  SettingsView),
+        ("Dashboard",    DashboardView),
+        ("Accounts",     AccountsView),
+        ("Income",       IncomeView),
+        ("Expenses",     ExpensesView),
+        ("Transactions", TransactionsView),
+        ("Settings",     SettingsView),
     ]
 
     def __init__(self):

@@ -5,14 +5,17 @@ Accounts view: list, add, edit, and delete financial accounts for the current us
 
 from __future__ import annotations
 
+import re
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from database import db
 from models.account import Account
-from utils.helpers import format_currency
+from utils.helpers import format_currency, today_str
 from utils.platform_utils import ui_font
+
+_DATE_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 
 
 class AccountsView(ttkb.Frame):
@@ -36,6 +39,11 @@ class AccountsView(ttkb.Frame):
         header = ttkb.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
         ttkb.Label(header, text="Accounts", font=ui_font(18, "bold")).pack(side="left")
+        ttkb.Button(
+            header, text="⇄ Transfer",
+            bootstyle="info-outline",
+            command=self._open_transfer_dialog,
+        ).pack(side="right", padx=(8, 0))
         ttkb.Button(
             header, text="+ Add Account",
             bootstyle="success-outline",
@@ -117,6 +125,17 @@ class AccountsView(ttkb.Frame):
         db.update_account(account_id, self._user_id, name, account_type, balance)
         self.refresh()
 
+    def _open_transfer_dialog(self):
+        accounts = db.get_all_accounts(self._user_id)
+        if len(accounts) < 2:
+            Messagebox.show_warning(
+                "You need at least two accounts to make a transfer.",
+                title="Not Enough Accounts",
+            )
+            return
+        _TransferDialog(self, user_id=self._user_id, accounts=accounts,
+                        settings=self._settings, on_done=self.refresh)
+
 
 # ---------------------------------------------------------------------------
 # Account Add / Edit Dialog
@@ -175,3 +194,161 @@ class _AccountDialog(ttkb.Toplevel):
         else:
             self._on_save(name, account_type, balance)
         self.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Transfer Dialog
+# ---------------------------------------------------------------------------
+
+class _TransferDialog(ttkb.Toplevel):
+    """Modal dialog for transferring funds between two accounts."""
+
+    def __init__(self, parent, *, user_id: int, accounts, settings: dict, on_done):
+        super().__init__(parent)
+        self.title("Transfer Funds")
+        self.resizable(False, False)
+        self._user_id  = user_id
+        self._accounts = list(accounts)
+        self._settings = settings
+        self._on_done  = on_done
+        self._build_form()
+
+    def _build_form(self):
+        form = ttkb.Frame(self, padding=24)
+        form.pack(fill="both", expand=True)
+
+        account_names = [a["name"] for a in self._accounts]
+
+        # From account
+        ttkb.Label(form, text="From Account").grid(row=0, column=0, sticky="w", pady=4)
+        self._from_var = ttkb.StringVar()
+        self._from_combo = ttkb.Combobox(
+            form, textvariable=self._from_var,
+            values=account_names, state="readonly", width=28,
+        )
+        self._from_combo.grid(row=0, column=1, sticky="ew", pady=4, padx=(8, 0))
+        if account_names:
+            self._from_combo.current(0)
+
+        # Balance display for source
+        self._from_bal_label = ttkb.Label(form, text="", font=ui_font(8), bootstyle="secondary")
+        self._from_bal_label.grid(row=1, column=1, sticky="w", padx=(8, 0))
+        self._from_combo.bind("<<ComboboxSelected>>", lambda _: self._update_balance_labels())
+
+        # To account
+        ttkb.Label(form, text="To Account").grid(row=2, column=0, sticky="w", pady=(12, 4))
+        self._to_var = ttkb.StringVar()
+        self._to_combo = ttkb.Combobox(
+            form, textvariable=self._to_var,
+            values=account_names, state="readonly", width=28,
+        )
+        self._to_combo.grid(row=2, column=1, sticky="ew", pady=(12, 4), padx=(8, 0))
+        if len(account_names) > 1:
+            self._to_combo.current(1)
+        self._to_bal_label = ttkb.Label(form, text="", font=ui_font(8), bootstyle="secondary")
+        self._to_bal_label.grid(row=3, column=1, sticky="w", padx=(8, 0))
+        self._to_combo.bind("<<ComboboxSelected>>", lambda _: self._update_balance_labels())
+
+        # Amount
+        ttkb.Label(form, text="Amount").grid(row=4, column=0, sticky="w", pady=(12, 4))
+        self._amount_var = ttkb.StringVar()
+        ttkb.Entry(form, textvariable=self._amount_var, width=30).grid(
+            row=4, column=1, sticky="ew", pady=(12, 4), padx=(8, 0))
+
+        # Description (optional)
+        ttkb.Label(form, text="Note (optional)").grid(row=5, column=0, sticky="w", pady=4)
+        self._note_var = ttkb.StringVar()
+        ttkb.Entry(form, textvariable=self._note_var, width=30).grid(
+            row=5, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        # Date
+        ttkb.Label(form, text="Date").grid(row=6, column=0, sticky="w", pady=4)
+        self._date_var = ttkb.StringVar(value=today_str())
+        ttkb.Entry(form, textvariable=self._date_var, width=30).grid(
+            row=6, column=1, sticky="ew", pady=4, padx=(8, 0))
+        ttkb.Label(form, text="YYYY-MM-DD", font=ui_font(8),
+                   bootstyle="secondary").grid(row=7, column=1, sticky="w", padx=(8, 0))
+
+        # Status / error label
+        self._status_label = ttkb.Label(form, text="", font=ui_font(9))
+        self._status_label.grid(row=8, column=0, columnspan=2, pady=(8, 0))
+
+        # Buttons
+        btn_frame = ttkb.Frame(form)
+        btn_frame.grid(row=9, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        ttkb.Button(btn_frame, text="Cancel", bootstyle="secondary-outline",
+                    command=self.destroy).pack(side="right", padx=(8, 0))
+        ttkb.Button(btn_frame, text="Transfer", bootstyle="info",
+                    command=self._submit).pack(side="right")
+
+        self._update_balance_labels()
+
+    def _update_balance_labels(self):
+        sym = self._settings.get("currency_symbol", "$")
+        from_name = self._from_var.get()
+        to_name   = self._to_var.get()
+        for acct in self._accounts:
+            if acct["name"] == from_name:
+                self._from_bal_label.config(
+                    text=f"Balance: {sym}{acct['balance']:,.2f}")
+            if acct["name"] == to_name:
+                self._to_bal_label.config(
+                    text=f"Balance: {sym}{acct['balance']:,.2f}")
+
+    def _submit(self):
+        from_name = self._from_var.get()
+        to_name   = self._to_var.get()
+
+        from_acct = next((a for a in self._accounts if a["name"] == from_name), None)
+        to_acct   = next((a for a in self._accounts if a["name"] == to_name),   None)
+
+        if not from_acct or not to_acct:
+            self._status_label.config(
+                text="Please select both accounts.", bootstyle="danger")
+            return
+        if from_acct["id"] == to_acct["id"]:
+            self._status_label.config(
+                text="Source and destination must be different accounts.", bootstyle="danger")
+            return
+
+        try:
+            amount = float(self._amount_var.get())
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            self._status_label.config(
+                text="Amount must be a positive number.", bootstyle="danger")
+            return
+
+        date = self._date_var.get().strip()
+        if not _DATE_RE.match(date):
+            self._status_label.config(
+                text="Date must be YYYY-MM-DD (e.g. 2026-11-05).", bootstyle="danger")
+            return
+
+        note = self._note_var.get().strip()
+        if len(note) > 200:
+            self._status_label.config(
+                text="Note must be 200 characters or fewer.", bootstyle="danger")
+            return
+
+        try:
+            db.record_transfer(
+                self._user_id,
+                from_account_id=from_acct["id"],
+                to_account_id=to_acct["id"],
+                amount=amount,
+                description=note,
+                date=date,
+            )
+        except ValueError as exc:
+            self._status_label.config(text=str(exc), bootstyle="danger")
+            return
+
+        self._on_done()
+        self.destroy()
+        Messagebox.show_info(
+            f"Transferred {self._settings.get('currency_symbol', '$')}{amount:,.2f} "
+            f"from {from_name} to {to_name}.",
+            title="Transfer Complete",
+        )

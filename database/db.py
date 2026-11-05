@@ -74,6 +74,19 @@ def initialize_db() -> None:
             )
         """)
 
+        # transfers links the two transaction rows (debit + credit) that form one
+        # logical transfer so they can be deleted together atomically.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transfers (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                debit_tx_id     INTEGER NOT NULL UNIQUE,
+                credit_tx_id    INTEGER NOT NULL UNIQUE,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (debit_tx_id)  REFERENCES transactions(id) ON DELETE CASCADE,
+                FOREIGN KEY (credit_tx_id) REFERENCES transactions(id) ON DELETE CASCADE
+            )
+        """)
+
         conn.commit()
 
     _run_migrations()
@@ -87,6 +100,23 @@ def _run_migrations() -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()}
         if "user_id" not in cols:
             conn.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER")
+            conn.commit()
+
+        # Migration 2: create transfers table for databases created before this feature
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        if "transfers" not in tables:
+            conn.execute("""
+                CREATE TABLE transfers (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    debit_tx_id     INTEGER NOT NULL UNIQUE,
+                    credit_tx_id    INTEGER NOT NULL UNIQUE,
+                    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (debit_tx_id)  REFERENCES transactions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (credit_tx_id) REFERENCES transactions(id) ON DELETE CASCADE
+                )
+            """)
             conn.commit()
 
 
@@ -360,3 +390,185 @@ def change_password(user_id: int, current_password: str, new_password: str) -> b
         )
         conn.commit()
     return True
+
+
+# ---------------------------------------------------------------------------
+# Transfer queries
+# ---------------------------------------------------------------------------
+
+def record_transfer(
+    user_id: int,
+    from_account_id: int,
+    to_account_id: int,
+    amount: float,
+    description: str,
+    date: str,
+) -> tuple[int, int]:
+    """
+    Move `amount` from one account to another atomically.
+
+    Creates two transaction rows (debit on source, credit on destination),
+    links them in the transfers table, and adjusts both account balances —
+    all inside a single DB transaction so it is all-or-nothing.
+
+    Returns (debit_tx_id, credit_tx_id).
+    Raises ValueError if either account does not belong to user_id, or if
+    from_account_id == to_account_id.
+    """
+    if from_account_id == to_account_id:
+        raise ValueError("Source and destination accounts must be different.")
+
+    with get_connection() as conn:
+        # Ownership check — both accounts must belong to this user
+        src = conn.execute(
+            "SELECT id, balance FROM accounts WHERE id = ? AND user_id = ?",
+            (from_account_id, user_id),
+        ).fetchone()
+        dst = conn.execute(
+            "SELECT id, balance FROM accounts WHERE id = ? AND user_id = ?",
+            (to_account_id, user_id),
+        ).fetchone()
+        if src is None or dst is None:
+            raise ValueError("One or both accounts not found for this user.")
+
+        note = description.strip() or "Transfer"
+
+        # Debit the source account
+        debit_cur = conn.execute("""
+            INSERT INTO transactions (account_id, type, category, amount, description, date)
+            VALUES (?, 'expense', 'Transfer', ?, ?, ?)
+        """, (from_account_id, amount, note, date))
+        debit_id = debit_cur.lastrowid
+
+        # Credit the destination account
+        credit_cur = conn.execute("""
+            INSERT INTO transactions (account_id, type, category, amount, description, date)
+            VALUES (?, 'income', 'Transfer', ?, ?, ?)
+        """, (to_account_id, amount, note, date))
+        credit_id = credit_cur.lastrowid
+
+        # Link the pair
+        conn.execute("""
+            INSERT INTO transfers (debit_tx_id, credit_tx_id) VALUES (?, ?)
+        """, (debit_id, credit_id))
+
+        # Adjust balances
+        conn.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+            (amount, from_account_id),
+        )
+        conn.execute(
+            "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+            (amount, to_account_id),
+        )
+
+        conn.commit()
+    return debit_id, credit_id
+
+
+def delete_transfer(transfer_debit_tx_id: int, user_id: int) -> bool:
+    """
+    Delete a transfer by the debit transaction's id, reversing both account
+    balances atomically. Ownership is verified — only the owning user can delete.
+
+    Returns True on success, False if the transfer was not found or not owned
+    by user_id.
+    """
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT tf.debit_tx_id, tf.credit_tx_id,
+                   td.amount, td.account_id AS debit_account_id,
+                   tc.account_id AS credit_account_id
+            FROM transfers tf
+            JOIN transactions td ON tf.debit_tx_id  = td.id
+            JOIN transactions tc ON tf.credit_tx_id = tc.id
+            JOIN accounts     ad ON td.account_id   = ad.id
+            WHERE tf.debit_tx_id = ? AND ad.user_id = ?
+        """, (transfer_debit_tx_id, user_id)).fetchone()
+
+        if row is None:
+            return False
+
+        amount           = row["amount"]
+        debit_account_id = row["debit_account_id"]
+        credit_account_id= row["credit_account_id"]
+        debit_id         = row["debit_tx_id"]
+        credit_id        = row["credit_tx_id"]
+
+        # Reverse the balance changes
+        conn.execute(
+            "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+            (amount, debit_account_id),
+        )
+        conn.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+            (amount, credit_account_id),
+        )
+
+        # Cascade will remove the transfers row when the transactions are deleted
+        conn.execute("DELETE FROM transactions WHERE id = ?", (debit_id,))
+        conn.execute("DELETE FROM transactions WHERE id = ?", (credit_id,))
+
+        conn.commit()
+    return True
+
+
+def get_filtered_transactions(
+    user_id: int,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    tx_type: str | None = None,
+    account_id: int | None = None,
+    keyword: str | None = None,
+) -> list[sqlite3.Row]:
+    """
+    Return transactions matching all supplied filters, newest first.
+
+    Parameters
+    ----------
+    user_id    : Scopes results to this user.
+    date_from  : ISO 8601 string (YYYY-MM-DD), inclusive lower bound.
+    date_to    : ISO 8601 string (YYYY-MM-DD), inclusive upper bound.
+    tx_type    : 'income', 'expense', or 'transfer' (matches category='Transfer').
+                 None means all types.
+    account_id : Restrict to a specific account (must belong to user_id).
+    keyword    : Case-insensitive substring search over description and category.
+    """
+    clauses: list[str] = ["a.user_id = ?"]
+    params:  list      = [user_id]
+
+    if date_from:
+        clauses.append("t.date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("t.date <= ?")
+        params.append(date_to)
+    if tx_type == "transfer":
+        clauses.append("t.category = 'Transfer'")
+    elif tx_type in ("income", "expense"):
+        clauses.append("t.type = ?")
+        clauses.append("t.category != 'Transfer'")
+        params.append(tx_type)
+    if account_id is not None:
+        clauses.append("t.account_id = ?")
+        params.append(account_id)
+    if keyword:
+        clauses.append("(LOWER(t.description) LIKE ? OR LOWER(t.category) LIKE ?)")
+        like = f"%{keyword.lower()}%"
+        params.extend([like, like])
+
+    where = " AND ".join(clauses)
+    sql = f"""
+        SELECT t.*, a.name AS account_name,
+               CASE WHEN tf.id IS NOT NULL THEN 1 ELSE 0 END AS is_transfer,
+               tf.debit_tx_id, tf.credit_tx_id
+        FROM transactions t
+        JOIN accounts a ON t.account_id = a.id
+        LEFT JOIN transfers tf
+               ON (tf.debit_tx_id = t.id OR tf.credit_tx_id = t.id)
+        WHERE {where}
+        ORDER BY t.date DESC, t.created_at DESC
+    """
+    with get_connection() as conn:
+        return conn.execute(sql, params).fetchall()
