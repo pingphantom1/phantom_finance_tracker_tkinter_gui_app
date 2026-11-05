@@ -24,6 +24,7 @@ class DashboardView(ttkb.Frame):
         super().__init__(parent)
         self.controller = controller
         self._user_id = user_id
+        self._settings: dict = {}
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -34,14 +35,12 @@ class DashboardView(ttkb.Frame):
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Page heading
         ttkb.Label(
             self, text="Dashboard",
             font=ui_font(18, "bold"),
             padding=(20, 16),
         ).grid(row=0, column=0, sticky="w")
 
-        # Summary cards row
         self._cards_frame = ttkb.Frame(self)
         self._cards_frame.grid(row=1, column=0, sticky="ew", padx=20)
         self._cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
@@ -54,7 +53,6 @@ class DashboardView(ttkb.Frame):
         self._expense_card.grid(row=0, column=1, padx=(0, 12), sticky="ew")
         self._balance_card.grid(row=0, column=2, sticky="ew")
 
-        # Charts area
         self._chart_frame = ttkb.Frame(self)
         self._chart_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=16)
         self.grid_rowconfigure(2, weight=1)
@@ -77,11 +75,9 @@ class DashboardView(ttkb.Frame):
 
         dpi = figure_dpi()
         fig = Figure(figsize=(9, 4), dpi=dpi)
-        # Use set_layout_engine instead of the deprecated tight_layout=True kwarg
         fig.set_layout_engine("tight")
         fig.patch.set_facecolor("#222222")
 
-        # Bar chart: income vs expenses
         ax1 = fig.add_subplot(1, 2, 1)
         ax1.set_facecolor("#2b2b2b")
         ax1.bar(
@@ -94,7 +90,6 @@ class DashboardView(ttkb.Frame):
         for spine in ax1.spines.values():
             spine.set_edgecolor("#555")
 
-        # Pie chart: expense breakdown by category
         ax2 = fig.add_subplot(1, 2, 2)
         ax2.set_facecolor("#2b2b2b")
         expense_rows = [t for t in transactions if t["type"] == "expense"]
@@ -117,15 +112,19 @@ class DashboardView(ttkb.Frame):
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------
-    # Refresh (called on navigation)
+    # Refresh
     # ------------------------------------------------------------------
 
     def refresh(self):
+        self._settings = db.get_all_settings(self._user_id)
         summary = db.get_summary(self._user_id)
         transactions = db.get_all_transactions(self._user_id)
 
-        self._income_card._value_label.config(text=format_currency(summary["total_income"]))
-        self._expense_card._value_label.config(text=format_currency(summary["total_expenses"]))
-        self._balance_card._value_label.config(text=format_currency(summary["net_balance"]))
+        self._income_card._value_label.config(
+            text=format_currency(summary["total_income"],   self._settings))
+        self._expense_card._value_label.config(
+            text=format_currency(summary["total_expenses"], self._settings))
+        self._balance_card._value_label.config(
+            text=format_currency(summary["net_balance"],    self._settings))
 
         self._render_charts(summary, transactions)

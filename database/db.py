@@ -63,6 +63,17 @@ def initialize_db() -> None:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                key        TEXT    NOT NULL,
+                value      TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE (user_id, key)
+            )
+        """)
+
         conn.commit()
 
     _run_migrations()
@@ -256,3 +267,79 @@ def get_summary(user_id: int) -> dict:
             "total_expenses": row["total_expenses"],
             "net_balance": row["total_income"] - row["total_expenses"],
         }
+
+
+# ---------------------------------------------------------------------------
+# User settings queries
+# ---------------------------------------------------------------------------
+
+# Defaults applied the first time a key is read for a new user.
+SETTING_DEFAULTS: dict[str, str] = {
+    "currency_symbol":  "$",
+    "currency_name":    "US Dollar",
+    "theme":            "darkly",
+    "date_format":      "%b %d, %Y",
+    "default_account":  "",          # account name; empty means no preference
+}
+
+
+def get_setting(user_id: int, key: str) -> str:
+    """Return the value of a setting, falling back to the default if not yet saved."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+            (user_id, key),
+        ).fetchone()
+    if row:
+        return row["value"]
+    return SETTING_DEFAULTS.get(key, "")
+
+
+def set_setting(user_id: int, key: str, value: str) -> None:
+    """Insert or update a single setting for the user."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO user_settings (user_id, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT (user_id, key) DO UPDATE SET value = excluded.value
+        """, (user_id, key, value))
+        conn.commit()
+
+
+def get_all_settings(user_id: int) -> dict[str, str]:
+    """Return all settings for the user, merged with defaults for any missing keys."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    saved = {row["key"]: row["value"] for row in rows}
+    # Start from defaults so every key is always present
+    result = dict(SETTING_DEFAULTS)
+    result.update(saved)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Change password
+# ---------------------------------------------------------------------------
+
+def change_password(user_id: int, current_password: str, new_password: str) -> bool:
+    """
+    Change the user's password after verifying the current one.
+    Returns True on success, False if the current password is wrong.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row or not verify_password(current_password, row["password_hash"]):
+        return False
+    new_hash = hash_password(new_password)
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (new_hash, user_id),
+        )
+        conn.commit()
+    return True

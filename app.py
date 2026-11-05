@@ -10,12 +10,13 @@ from __future__ import annotations
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
-from database.db import initialize_db, get_username
+from database.db import initialize_db, get_username, get_setting
 from views.login import LoginView
 from views.dashboard import DashboardView
 from views.accounts import AccountsView
 from views.income import IncomeView
 from views.expenses import ExpensesView
+from views.settings import SettingsView
 from utils.platform_utils import ui_font
 
 
@@ -23,7 +24,7 @@ class PhantomFinanceApp(ttkb.Window):
     """Main application window with a login gate, sidebar navigation, and session management."""
 
     APP_TITLE = "Phantom Finance"
-    THEME = "darkly"
+    DEFAULT_THEME = "darkly"
     # Main window: 3/4 of screen width; height scaled to a 16:9 ratio
     MAIN_WIDTH_RATIO = 0.75
     MAIN_ASPECT = 9 / 16
@@ -36,10 +37,11 @@ class PhantomFinanceApp(ttkb.Window):
         ("Accounts",  AccountsView),
         ("Income",    IncomeView),
         ("Expenses",  ExpensesView),
+        ("Settings",  SettingsView),
     ]
 
     def __init__(self):
-        super().__init__(themename=self.THEME)
+        super().__init__(themename=self.DEFAULT_THEME)
         self.title(self.APP_TITLE)
         self.minsize(460, 380)
 
@@ -68,6 +70,10 @@ class PhantomFinanceApp(ttkb.Window):
     def _on_login_success(self, user_id: int):
         """Called by LoginView after a successful login or registration."""
         self._user_id = user_id
+        # Apply the user's saved theme before building the main UI
+        saved_theme = get_setting(user_id, "theme")
+        if saved_theme:
+            self.style.theme_use(saved_theme)
         self._show_main_ui()
 
     # ------------------------------------------------------------------
@@ -118,7 +124,7 @@ class PhantomFinanceApp(ttkb.Window):
         username = get_username(self._user_id)
         self._username_label = ttkb.Label(
             self._sidebar,
-            text=f"{username}",
+            text=username,
             font=ui_font(9),
             bootstyle="inverse-dark",
             padding=(16, 8),
@@ -127,8 +133,10 @@ class PhantomFinanceApp(ttkb.Window):
 
         ttkb.Separator(self._sidebar, bootstyle="secondary").pack(fill="x", pady=(0, 8))
 
-        # Navigation buttons
+        # Navigation buttons (all items except Settings go in the main group)
         for label, _ in self.NAV_ITEMS:
+            if label == "Settings":
+                continue
             ttkb.Button(
                 self._sidebar,
                 text=label,
@@ -138,11 +146,19 @@ class PhantomFinanceApp(ttkb.Window):
                 padding=(8, 10),
             ).pack(fill="x", padx=12, pady=4)
 
-        # Spacer
+        # Spacer pushes the bottom group down
         ttkb.Frame(self._sidebar, bootstyle="dark").pack(fill="both", expand=True)
 
-        # Logout button pinned to the bottom
+        # Settings + Logout pinned to the bottom
         ttkb.Separator(self._sidebar, bootstyle="secondary").pack(fill="x", pady=(0, 4))
+        ttkb.Button(
+            self._sidebar,
+            text="Settings",
+            bootstyle="secondary-outline",
+            command=lambda: self.show_view("Settings"),
+            width=18,
+            padding=(8, 10),
+        ).pack(fill="x", padx=12, pady=(0, 4))
         ttkb.Button(
             self._sidebar,
             text="Log Out",
@@ -180,6 +196,8 @@ class PhantomFinanceApp(ttkb.Window):
         """Clear the session and return to the login screen."""
         self._user_id = None
         self._frames.clear()
+        # Reset to default theme on logout
+        self.style.theme_use(self.DEFAULT_THEME)
         self.minsize(self.LOGIN_WIDTH, self.LOGIN_HEIGHT)
         self._show_login()
 

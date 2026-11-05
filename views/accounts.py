@@ -22,6 +22,7 @@ class AccountsView(ttkb.Frame):
         super().__init__(parent)
         self.controller = controller
         self._user_id = user_id
+        self._settings: dict = {}
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -32,7 +33,6 @@ class AccountsView(ttkb.Frame):
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Header row
         header = ttkb.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
         ttkb.Label(header, text="Accounts", font=ui_font(18, "bold")).pack(side="left")
@@ -42,7 +42,6 @@ class AccountsView(ttkb.Frame):
             command=self._open_add_dialog,
         ).pack(side="right")
 
-        # Table
         cols = ("ID", "Name", "Type", "Balance")
         self._tree = ttkb.Treeview(
             self, columns=cols, show="headings",
@@ -60,7 +59,6 @@ class AccountsView(ttkb.Frame):
         scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 8))
         self._tree.configure(yscrollcommand=scrollbar.set)
 
-        # Action buttons
         btn_row = ttkb.Frame(self)
         btn_row.grid(row=2, column=0, sticky="e", padx=20, pady=(0, 16))
         ttkb.Button(btn_row, text="Edit",   bootstyle="warning-outline", command=self._open_edit_dialog).pack(side="left", padx=4)
@@ -71,11 +69,12 @@ class AccountsView(ttkb.Frame):
     # ------------------------------------------------------------------
 
     def refresh(self):
+        self._settings = db.get_all_settings(self._user_id)
         self._tree.delete(*self._tree.get_children())
         for row in db.get_all_accounts(self._user_id):
             self._tree.insert("", "end", values=(
                 row["id"], row["name"], row["type"],
-                format_currency(row["balance"]),
+                format_currency(row["balance"], self._settings),
             ))
 
     # ------------------------------------------------------------------
@@ -83,6 +82,7 @@ class AccountsView(ttkb.Frame):
     # ------------------------------------------------------------------
 
     def _open_add_dialog(self):
+        default_name = self._settings.get("default_account", "")
         _AccountDialog(self, title="Add Account", on_save=self._save_new_account)
 
     def _open_edit_dialog(self):

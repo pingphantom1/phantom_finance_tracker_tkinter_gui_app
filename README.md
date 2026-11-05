@@ -8,6 +8,7 @@ A personal finance tracker built with Python and Tkinter.
 - **Accounts** — create and manage bank, cash, savings, and credit accounts
 - **Income** — log and manage income transactions by category
 - **Expenses** — log and manage expense transactions by category
+- **User settings** — choose a currency (including Ghanaian cedi), theme, date format, and default account; change your password
 - **Multi-user** — each user's data is fully isolated; login or register at startup
 
 ## Requirements
@@ -42,7 +43,8 @@ phantom_finance_tkinter_gui_app/
 │   ├── dashboard.py
 │   ├── accounts.py
 │   ├── income.py
-│   └── expenses.py
+│   ├── expenses.py
+│   └── settings.py
 ├── models/
 │   ├── transaction.py
 │   └── account.py
