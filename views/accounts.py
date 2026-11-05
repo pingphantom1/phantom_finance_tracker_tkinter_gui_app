@@ -40,7 +40,7 @@ class AccountsView(ttkb.Frame):
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
         ttkb.Label(header, text="Accounts", font=ui_font(18, "bold")).pack(side="left")
         ttkb.Button(
-            header, text="⇄ Transfer",
+            header, text="Transfer Funds",
             bootstyle="info-outline",
             command=self._open_transfer_dialog,
         ).pack(side="right", padx=(8, 0))
