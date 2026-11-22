@@ -45,6 +45,11 @@ class AccountsView(ttkb.Frame):
             command=self._open_transfer_dialog,
         ).pack(side="right", padx=(8, 0))
         ttkb.Button(
+            header, text="Adjust Balance",
+            bootstyle="warning-outline",
+            command=self._open_adjust_balance_dialog,
+        ).pack(side="right", padx=(8, 0))
+        ttkb.Button(
             header, text="+ Add Account",
             bootstyle="success-outline",
             command=self._open_add_dialog,
@@ -136,6 +141,28 @@ class AccountsView(ttkb.Frame):
         _TransferDialog(self, user_id=self._user_id, accounts=accounts,
                         settings=self._settings, on_done=self.refresh)
 
+    def _open_adjust_balance_dialog(self):
+        selected = self._tree.focus()
+        if not selected:
+            Messagebox.show_warning(
+                "Please select an account to adjust its balance.",
+                title="No Selection",
+            )
+            return
+        values = self._tree.item(selected, "values")
+        account = db.get_account_by_id(int(values[0]), self._user_id)
+        if account:
+            _AdjustBalanceDialog(
+                self,
+                account=account,
+                settings=self._settings,
+                on_save=self._save_balance_adjustment,
+            )
+
+    def _save_balance_adjustment(self, account_id: int, new_balance: float):
+        db.adjust_account_balance(account_id, self._user_id, new_balance)
+        self.refresh()
+
 
 # ---------------------------------------------------------------------------
 # Account Add / Edit Dialog
@@ -193,6 +220,91 @@ class _AccountDialog(ttkb.Toplevel):
             self._on_save(self._account["id"], name, account_type, balance)
         else:
             self._on_save(name, account_type, balance)
+        self.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Adjust Balance Dialog
+# ---------------------------------------------------------------------------
+
+class _AdjustBalanceDialog(ttkb.Toplevel):
+    """Modal dialog to set an account's balance directly (manual correction)."""
+
+    def __init__(self, parent, *, account, settings: dict, on_save):
+        super().__init__(parent)
+        self.title("Adjust Balance")
+        self.resizable(False, False)
+        self._account  = account
+        self._settings = settings
+        self._on_save  = on_save
+        self._build_form()
+
+    def _build_form(self):
+        form = ttkb.Frame(self, padding=24)
+        form.pack(fill="both", expand=True)
+
+        sym = self._settings.get("currency_symbol", "$")
+
+        # Account info (read-only context)
+        ttkb.Label(form, text="Account", font=ui_font(9, "bold")).grid(
+            row=0, column=0, sticky="w", pady=(0, 2))
+        ttkb.Label(form, text=self._account["name"]).grid(
+            row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 2))
+
+        ttkb.Label(form, text="Current Balance", font=ui_font(9, "bold")).grid(
+            row=1, column=0, sticky="w", pady=(0, 12))
+        ttkb.Label(
+            form,
+            text=f"{sym}{self._account['balance']:,.2f}",
+            bootstyle="secondary",
+        ).grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(0, 12))
+
+        ttkb.Separator(form).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+
+        # New balance input
+        ttkb.Label(form, text=f"New Balance ({sym})").grid(
+            row=3, column=0, sticky="w", pady=4)
+        self._balance_var = ttkb.StringVar(value=f"{self._account['balance']:.2f}")
+        ttkb.Entry(form, textvariable=self._balance_var, width=22).grid(
+            row=3, column=1, sticky="ew", padx=(8, 0), pady=4)
+
+        # Note label
+        ttkb.Label(
+            form,
+            text="This sets the balance directly and does not\ncreate a transaction record.",
+            font=ui_font(8),
+            bootstyle="secondary",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 12))
+
+        # Buttons
+        btn_frame = ttkb.Frame(form)
+        btn_frame.grid(row=5, column=0, columnspan=2, sticky="e")
+        ttkb.Button(btn_frame, text="Cancel", bootstyle="secondary-outline",
+                    command=self.destroy).pack(side="right", padx=(8, 0))
+        ttkb.Button(btn_frame, text="Apply Adjustment", bootstyle="warning",
+                    command=self._submit).pack(side="right")
+
+    def _submit(self):
+        try:
+            new_balance = float(self._balance_var.get())
+        except ValueError:
+            Messagebox.show_error("Balance must be a number.", title="Invalid Input")
+            return
+
+        # Confirm before applying
+        sym = self._settings.get("currency_symbol", "$")
+        old = self._account["balance"]
+        diff = new_balance - old
+        sign = "+" if diff >= 0 else ""
+        confirm = Messagebox.yesno(
+            f"Set '{self._account['name']}' balance to {sym}{new_balance:,.2f}?\n"
+            f"(Change: {sign}{sym}{diff:,.2f})",
+            title="Confirm Adjustment",
+        )
+        if confirm != "Yes":
+            return
+
+        self._on_save(self._account["id"], new_balance)
         self.destroy()
 
 
