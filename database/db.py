@@ -248,11 +248,28 @@ def insert_transaction(
     description: str,
     date: str,
 ) -> int:
+    """Insert a transaction and update the account balance atomically.
+
+    Income increases the balance; expenses decrease it.
+    """
     with get_connection() as conn:
         cursor = conn.execute("""
             INSERT INTO transactions (account_id, type, category, amount, description, date)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (account_id, transaction_type, category, amount, description, date))
+
+        # Update account balance based on transaction type
+        if transaction_type == "income":
+            conn.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+                (amount, account_id),
+            )
+        elif transaction_type == "expense":
+            conn.execute(
+                "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+                (amount, account_id),
+            )
+
         conn.commit()
         return cursor.lastrowid
 
@@ -267,34 +284,97 @@ def update_transaction(
     description: str,
     date: str,
 ) -> None:
-    """Update a transaction only if it belongs to user_id (ownership enforced via JOIN)."""
+    """Update a transaction and adjust account balances atomically.
+
+    Reverses the old transaction's effect on its original account, then applies
+    the new transaction's effect on the (possibly different) new account.
+    Ownership is enforced via JOIN — only the owning user can update.
+    """
     with get_connection() as conn:
+        # Fetch the existing transaction to know what to reverse
+        old = conn.execute("""
+            SELECT t.account_id, t.type, t.amount
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.id
+            WHERE t.id = ? AND a.user_id = ?
+        """, (transaction_id, user_id)).fetchone()
+
+        if old is None:
+            return  # transaction not found or not owned by this user
+
+        old_account_id = old["account_id"]
+        old_type       = old["type"]
+        old_amount     = old["amount"]
+
+        # Reverse the old balance effect
+        if old_type == "income":
+            conn.execute(
+                "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+                (old_amount, old_account_id),
+            )
+        elif old_type == "expense":
+            conn.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+                (old_amount, old_account_id),
+            )
+
+        # Apply the new balance effect
+        if transaction_type == "income":
+            conn.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+                (amount, account_id),
+            )
+        elif transaction_type == "expense":
+            conn.execute(
+                "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+                (amount, account_id),
+            )
+
+        # Update the transaction row
         conn.execute("""
             UPDATE transactions
             SET account_id = ?, type = ?, category = ?, amount = ?, description = ?, date = ?
             WHERE id = ?
-              AND EXISTS (
-                  SELECT 1 FROM accounts
-                  WHERE accounts.id = transactions.account_id
-                    AND accounts.user_id = ?
-              )
         """, (account_id, transaction_type, category, amount, description, date,
-              transaction_id, user_id))
+              transaction_id))
+
         conn.commit()
 
 
 def delete_transaction(transaction_id: int, user_id: int) -> None:
-    """Delete a transaction only if it belongs to user_id (ownership enforced via JOIN)."""
+    """Delete a transaction and reverse its effect on the account balance.
+
+    Ownership is enforced via JOIN — only the owning user can delete.
+    """
     with get_connection() as conn:
-        conn.execute("""
-            DELETE FROM transactions
-            WHERE id = ?
-              AND EXISTS (
-                  SELECT 1 FROM accounts
-                  WHERE accounts.id = transactions.account_id
-                    AND accounts.user_id = ?
-              )
-        """, (transaction_id, user_id))
+        # Fetch the transaction to know what to reverse
+        row = conn.execute("""
+            SELECT t.account_id, t.type, t.amount
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.id
+            WHERE t.id = ? AND a.user_id = ?
+        """, (transaction_id, user_id)).fetchone()
+
+        if row is None:
+            return  # not found or not owned by this user
+
+        account_id = row["account_id"]
+        tx_type    = row["type"]
+        amount     = row["amount"]
+
+        # Reverse the balance effect
+        if tx_type == "income":
+            conn.execute(
+                "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+                (amount, account_id),
+            )
+        elif tx_type == "expense":
+            conn.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+                (amount, account_id),
+            )
+
+        conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
         conn.commit()
 
 
