@@ -131,14 +131,17 @@ class IncomeView(ttkb.Frame):
         if confirm == "Yes":
             db.delete_transaction(int(selected), self._user_id)
             self.refresh()
+            self.controller.refresh_related_views("Income")
 
     def _save_new(self, account_id, category, amount, description, date):
         db.insert_transaction(account_id, "income", category, amount, description, date)
         self.refresh()
+        self.controller.refresh_related_views("Income")
 
     def _save_edit(self, transaction_id, account_id, category, amount, description, date):
         db.update_transaction(transaction_id, self._user_id, account_id, "income", category, amount, description, date)
         self.refresh()
+        self.controller.refresh_related_views("Income")
 
 
 # ---------------------------------------------------------------------------

@@ -194,6 +194,23 @@ class PhantomFinanceApp(ttkb.Window):
             frame.refresh()
             frame.tkraise()
 
+    def refresh_related_views(self, source: str):
+        """Refresh every view except the caller so balances and summaries stay in sync.
+
+        Called by Income, Expenses, and Transactions views after any write (insert,
+        update, delete) so the Accounts and Dashboard views always show current data
+        without requiring the user to manually navigate away and back.
+
+        Parameters
+        ----------
+        source : str
+            The name of the view that triggered the write (e.g. "Income").  It is
+            excluded from the refresh to avoid a double-refresh of the visible pane.
+        """
+        for name, frame in self._frames.items():
+            if name != source:
+                frame.refresh()
+
     def _logout(self):
         """Clear the session and return to the login screen."""
         self._user_id = None
