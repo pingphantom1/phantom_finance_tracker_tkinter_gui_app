@@ -176,6 +176,63 @@ def _run_migrations() -> None:
                 )
             conn.commit()
 
+        # Migration 5: reconcile account balances from transaction history.
+        #
+        # Databases that existed before the balance-update fix (feature/fix-balance-updates)
+        # may have accounts whose stored balance does not reflect the transactions recorded
+        # against them.  We detect this by comparing the stored balance against the sum
+        # of all income/expense/transfer transactions for each account and correct any
+        # discrepancy.
+        #
+        # The sentinel column `balance_reconciled` is added to `accounts` so this
+        # migration runs exactly once per database.
+        acct_cols_now = {row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "balance_reconciled" not in acct_cols_now:
+            conn.execute("ALTER TABLE accounts ADD COLUMN balance_reconciled INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+
+            # For each account that has NOT yet been reconciled, recompute the balance
+            # from the full transaction history.
+            accounts = conn.execute(
+                "SELECT id FROM accounts WHERE balance_reconciled = 0"
+            ).fetchall()
+            for acct in accounts:
+                acct_id = acct["id"]
+                # Sum income (non-transfer)
+                inc = conn.execute("""
+                    SELECT COALESCE(SUM(amount), 0) AS s
+                    FROM transactions
+                    WHERE account_id = ? AND type = 'income' AND category != 'Transfer'
+                """, (acct_id,)).fetchone()["s"]
+                # Sum expenses (non-transfer)
+                exp = conn.execute("""
+                    SELECT COALESCE(SUM(amount), 0) AS s
+                    FROM transactions
+                    WHERE account_id = ? AND type = 'expense' AND category != 'Transfer'
+                """, (acct_id,)).fetchone()["s"]
+                # Sum transfer debits (money leaving this account)
+                debit = conn.execute("""
+                    SELECT COALESCE(SUM(t.amount), 0) AS s
+                    FROM transactions t
+                    JOIN transfers tf ON tf.debit_tx_id = t.id
+                    WHERE t.account_id = ?
+                """, (acct_id,)).fetchone()["s"]
+                # Sum transfer credits (money arriving at this account)
+                credit = conn.execute("""
+                    SELECT COALESCE(SUM(t.amount), 0) AS s
+                    FROM transactions t
+                    JOIN transfers tf ON tf.credit_tx_id = t.id
+                    WHERE t.account_id = ?
+                """, (acct_id,)).fetchone()["s"]
+
+                correct_balance = inc - exp - debit + credit
+
+                conn.execute(
+                    "UPDATE accounts SET balance = ?, balance_reconciled = 1 WHERE id = ?",
+                    (correct_balance, acct_id),
+                )
+            conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # User auth queries

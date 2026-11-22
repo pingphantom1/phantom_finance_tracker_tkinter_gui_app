@@ -326,6 +326,7 @@ class TransactionsView(ttkb.Frame):
             db.delete_transaction(row["id"], self._user_id)
 
         self._load_data()
+        self.controller.refresh_related_views("Transactions")
 
     # ------------------------------------------------------------------
     # Refresh (called by app.py show_view)

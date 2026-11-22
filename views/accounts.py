@@ -129,14 +129,17 @@ class AccountsView(ttkb.Frame):
         if confirm == "Yes":
             db.delete_account(int(selected), self._user_id)
             self.refresh()
+            self.controller.refresh_related_views("Accounts")
 
     def _save_new_account(self, name: str, account_type: str, balance: float):
         db.insert_account(self._user_id, name, account_type, balance)
         self.refresh()
+        self.controller.refresh_related_views("Accounts")
 
     def _save_edit_account(self, account_id: int, name: str, account_type: str, balance: float):
         db.update_account(account_id, self._user_id, name, account_type, balance)
         self.refresh()
+        self.controller.refresh_related_views("Accounts")
 
     def _open_transfer_dialog(self):
         accounts = db.get_all_accounts(self._user_id)
@@ -147,7 +150,8 @@ class AccountsView(ttkb.Frame):
             )
             return
         _TransferDialog(self, user_id=self._user_id, accounts=accounts,
-                        settings=self._settings, on_done=self.refresh)
+                        settings=self._settings,
+                        on_done=lambda: (self.refresh(), self.controller.refresh_related_views("Accounts")))
 
     def _open_adjust_balance_dialog(self):
         selected = self._tree.focus()
@@ -170,6 +174,7 @@ class AccountsView(ttkb.Frame):
     def _save_balance_adjustment(self, account_id: int, new_balance: float):
         db.adjust_account_balance(account_id, self._user_id, new_balance)
         self.refresh()
+        self.controller.refresh_related_views("Accounts")
 
 
 # ---------------------------------------------------------------------------
