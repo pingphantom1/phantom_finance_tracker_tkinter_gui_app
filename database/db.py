@@ -119,6 +119,28 @@ def _run_migrations() -> None:
             """)
             conn.commit()
 
+        # Migration 3: add custom_id column to accounts (ACC001, ACC002, …)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "custom_id" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN custom_id TEXT")
+            conn.commit()
+            # Backfill existing rows — assign ACC### sequentially per user, ordered by rowid
+            rows = conn.execute(
+                "SELECT id, user_id FROM accounts ORDER BY user_id, id"
+            ).fetchall()
+            seq_by_user: dict[int, int] = {}
+            for row in rows:
+                uid = row["user_id"]
+                if uid not in seq_by_user:
+                    seq_by_user[uid] = 0
+                seq_by_user[uid] += 1
+                custom_id = f"ACC{seq_by_user[uid]:03d}"
+                conn.execute(
+                    "UPDATE accounts SET custom_id = ? WHERE id = ?",
+                    (custom_id, row["id"]),
+                )
+            conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # User auth queries
@@ -187,10 +209,19 @@ def get_account_by_id(account_id: int, user_id: int) -> sqlite3.Row | None:
 
 
 def insert_account(user_id: int, name: str, account_type: str, balance: float = 0.0) -> int:
+    """Insert a new account and assign the next ACC### custom_id for this user."""
     with get_connection() as conn:
+        # Determine the next sequence number for this user
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM accounts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        next_seq = row["cnt"] + 1
+        custom_id = f"ACC{next_seq:03d}"
+
         cursor = conn.execute(
-            "INSERT INTO accounts (user_id, name, type, balance) VALUES (?, ?, ?, ?)",
-            (user_id, name, account_type, balance),
+            "INSERT INTO accounts (user_id, name, type, balance, custom_id) VALUES (?, ?, ?, ?, ?)",
+            (user_id, name, account_type, balance, custom_id),
         )
         conn.commit()
         return cursor.lastrowid

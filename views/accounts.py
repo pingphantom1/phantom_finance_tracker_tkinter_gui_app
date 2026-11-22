@@ -85,10 +85,18 @@ class AccountsView(ttkb.Frame):
         self._settings = db.get_all_settings(self._user_id)
         self._tree.delete(*self._tree.get_children())
         for row in db.get_all_accounts(self._user_id):
-            self._tree.insert("", "end", values=(
-                row["id"], row["name"], row["type"],
-                format_currency(row["balance"], self._settings),
-            ))
+            # Use the integer id as the treeview iid so lookups are reliable;
+            # display custom_id (ACC###) in the visible "ID" column.
+            self._tree.insert(
+                "", "end",
+                iid=str(row["id"]),
+                values=(
+                    row["custom_id"] or f"ACC{row['id']:03d}",
+                    row["name"],
+                    row["type"],
+                    format_currency(row["balance"], self._settings),
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Dialogs
@@ -103,8 +111,8 @@ class AccountsView(ttkb.Frame):
         if not selected:
             Messagebox.show_warning("Please select an account to edit.", title="No Selection")
             return
-        values = self._tree.item(selected, "values")
-        account = db.get_account_by_id(int(values[0]), self._user_id)
+        # iid is the integer account id (set in refresh)
+        account = db.get_account_by_id(int(selected), self._user_id)
         if account:
             _AccountDialog(self, title="Edit Account", account=account, on_save=self._save_edit_account)
 
@@ -119,7 +127,7 @@ class AccountsView(ttkb.Frame):
             title="Confirm Delete",
         )
         if confirm == "Yes":
-            db.delete_account(int(values[0]), self._user_id)
+            db.delete_account(int(selected), self._user_id)
             self.refresh()
 
     def _save_new_account(self, name: str, account_type: str, balance: float):
@@ -149,8 +157,8 @@ class AccountsView(ttkb.Frame):
                 title="No Selection",
             )
             return
-        values = self._tree.item(selected, "values")
-        account = db.get_account_by_id(int(values[0]), self._user_id)
+        # iid is the integer account id
+        account = db.get_account_by_id(int(selected), self._user_id)
         if account:
             _AdjustBalanceDialog(
                 self,
