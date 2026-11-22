@@ -244,15 +244,20 @@ class TransactionsView(ttkb.Frame):
             if is_transfer:
                 type_tag = "Transfer"
                 category = "Transfer"
+                display_id = f"TRF{row['id']:03d}"
             else:
                 type_tag = row["type"].capitalize()
                 category = row["category"]
+                # Use the human-readable custom_id when available
+                display_id = row["custom_id"] or (
+                    f"INC{row['id']:03d}" if row["type"] == "income" else f"EXP{row['id']:03d}"
+                )
 
             amount_str = format_currency(row["amount"], self._settings)
             date_str   = format_date(row["date"], self._settings)
 
             iid = self._tree.insert("", "end", values=(
-                row["id"],
+                display_id,
                 date_str,
                 row["account_name"],
                 type_tag,

@@ -141,6 +141,41 @@ def _run_migrations() -> None:
                 )
             conn.commit()
 
+        # Migration 4: add custom_id column to transactions (INC###, EXP###)
+        tx_cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()}
+        if "custom_id" not in tx_cols:
+            conn.execute("ALTER TABLE transactions ADD COLUMN custom_id TEXT")
+            conn.commit()
+            # Backfill: assign INC### / EXP### per user per type, ordered by rowid.
+            # Transfers (category='Transfer') keep their existing integer id display.
+            rows = conn.execute("""
+                SELECT t.id, t.type, t.category, a.user_id
+                FROM transactions t
+                JOIN accounts a ON t.account_id = a.id
+                ORDER BY a.user_id, t.id
+            """).fetchall()
+            inc_seq: dict[int, int] = {}
+            exp_seq: dict[int, int] = {}
+            for row in rows:
+                uid = row["user_id"]
+                tx_type = row["type"]
+                category = row["category"]
+                if category == "Transfer":
+                    continue  # leave transfers without a custom_id
+                if tx_type == "income":
+                    inc_seq[uid] = inc_seq.get(uid, 0) + 1
+                    custom_id = f"INC{inc_seq[uid]:03d}"
+                elif tx_type == "expense":
+                    exp_seq[uid] = exp_seq.get(uid, 0) + 1
+                    custom_id = f"EXP{exp_seq[uid]:03d}"
+                else:
+                    continue
+                conn.execute(
+                    "UPDATE transactions SET custom_id = ? WHERE id = ?",
+                    (custom_id, row["id"]),
+                )
+            conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # User auth queries
@@ -297,12 +332,46 @@ def insert_transaction(
     """Insert a transaction and update the account balance atomically.
 
     Income increases the balance; expenses decrease it.
+    Assigns a human-readable custom_id: INC### for income, EXP### for expenses.
+    The sequence is per user and per type (income and expense counters are independent).
+    Transfers do not go through this function and are not assigned a prefix here.
     """
     with get_connection() as conn:
+        # Determine next sequence number for this user+type combination.
+        # Count existing non-transfer transactions of this type for this user.
+        row = conn.execute("""
+            SELECT COUNT(*) AS cnt
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.id
+            WHERE a.id = (SELECT id FROM accounts WHERE id = ?)
+              AND a.user_id = (SELECT user_id FROM accounts WHERE id = ?)
+              AND t.type = ?
+              AND t.category != 'Transfer'
+        """, (account_id, account_id, transaction_type)).fetchone()
+
+        # Also count across all accounts of this user to keep the sequence global per user
+        user_id_row = conn.execute(
+            "SELECT user_id FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        if user_id_row:
+            user_id = user_id_row["user_id"]
+            count_row = conn.execute("""
+                SELECT COUNT(*) AS cnt
+                FROM transactions t
+                JOIN accounts a ON t.account_id = a.id
+                WHERE a.user_id = ? AND t.type = ? AND t.category != 'Transfer'
+            """, (user_id, transaction_type)).fetchone()
+            next_seq = count_row["cnt"] + 1
+        else:
+            next_seq = 1
+
+        prefix = "INC" if transaction_type == "income" else "EXP"
+        custom_id = f"{prefix}{next_seq:03d}"
+
         cursor = conn.execute("""
-            INSERT INTO transactions (account_id, type, category, amount, description, date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (account_id, transaction_type, category, amount, description, date))
+            INSERT INTO transactions (account_id, type, category, amount, description, date, custom_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (account_id, transaction_type, category, amount, description, date, custom_id))
 
         # Update account balance based on transaction type
         if transaction_type == "income":

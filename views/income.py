@@ -79,14 +79,18 @@ class IncomeView(ttkb.Frame):
         self._settings = db.get_all_settings(self._user_id)
         self._tree.delete(*self._tree.get_children())
         for row in db.get_transactions_by_type(self._user_id, "income"):
-            self._tree.insert("", "end", values=(
-                row["id"],
-                format_date(row["date"], self._settings),
-                row["account_name"],
-                row["category"],
-                row["description"] or "",
-                format_currency(row["amount"], self._settings),
-            ))
+            self._tree.insert(
+                "", "end",
+                iid=str(row["id"]),
+                values=(
+                    row["custom_id"] or f"INC{row['id']:03d}",
+                    format_date(row["date"], self._settings),
+                    row["account_name"],
+                    row["category"],
+                    row["description"] or "",
+                    format_currency(row["amount"], self._settings),
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Dialogs
@@ -104,9 +108,9 @@ class IncomeView(ttkb.Frame):
         if not selected:
             Messagebox.show_warning("Please select a transaction to edit.", title="No Selection")
             return
-        values = self._tree.item(selected, "values")
+        # iid is the integer transaction id
         rows = db.get_transactions_by_type(self._user_id, "income")
-        row = next((r for r in rows if r["id"] == int(values[0])), None)
+        row = next((r for r in rows if r["id"] == int(selected)), None)
         if row:
             _TransactionDialog(
                 self, title="Edit Income", transaction_type="income",
@@ -125,7 +129,7 @@ class IncomeView(ttkb.Frame):
             title="Confirm Delete",
         )
         if confirm == "Yes":
-            db.delete_transaction(int(values[0]), self._user_id)
+            db.delete_transaction(int(selected), self._user_id)
             self.refresh()
 
     def _save_new(self, account_id, category, amount, description, date):
