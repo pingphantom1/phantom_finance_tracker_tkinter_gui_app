@@ -205,6 +205,21 @@ def update_account(account_id: int, user_id: int, name: str, account_type: str, 
         conn.commit()
 
 
+def adjust_account_balance(account_id: int, user_id: int, new_balance: float) -> bool:
+    """Set an account's balance directly to new_balance (manual adjustment).
+
+    Returns True if the account was found and updated, False otherwise.
+    Ownership is enforced — only the account's owner can adjust it.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE accounts SET balance = ? WHERE id = ? AND user_id = ?",
+            (new_balance, account_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def delete_account(account_id: int, user_id: int) -> None:
     with get_connection() as conn:
         conn.execute(
